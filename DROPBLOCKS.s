@@ -25,8 +25,8 @@ BORDERCOLOR		EQU		$09			; border color changes to indicate level up
 PROGRESS 		EQU		$FD			; cleared blocks
 
 
-PROGRESSBARL		EQU		$1F			; how far over to draw the progress bar
-;PLOTINDEX		EQU		$1C			
+PROGRESSBARL		EQU		$1F			; length of the progress bar
+FIELDORIGIN		EQU		$1C				; where to draw the playfield
 FIELDLEFT		EQU		$ED	
 FIELDRIGHT		EQU		$EF	
 
@@ -92,10 +92,12 @@ SPEED		EQU		$F1
 				STA PLAYERSCORE+1
 				STA BORDERCOLOR					; border starts pink (BB) from BORDERCOLORS LUT
 
-				LDA #$00							; all the way to the left side
+				LDA #$00						; all the way to the left side
+				STA FIELDORIGIN					
 				STA FIELDLEFT
-				LDA #$14						; 20 columns to start
-				STA FIELDRIGHT
+				CLC
+				ADC #$14						; 20 columns wide to start
+				STA FIELDRIGHT				
 
 
 				JSR CLRLORES					; clear screen		
@@ -187,9 +189,10 @@ GOTSPACE		STA STROBE
 				STA BORDERCOLOR
 				STA ATTRACTING			; leave ATTRACT mode
 
-				;LDA #$00				; all the way to the left side
+				LDA FIELDORIGIN			; all the way to the left side
 				STA FIELDLEFT
-				LDA #$14				; 20 columns to start
+				CLC
+				ADC #$14				; 20 columns to start
 				STA FIELDRIGHT
 
 				JSR DRAWBOARD
@@ -340,7 +343,15 @@ DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of scr
 				JSR RANDOMCOLUMN		; gets random column from 2-18 for attract mode
 				JMP RANDOMTOP
 				
-MIDDLETOP		LDA #$08				
+MIDDLETOP		LDA FIELDRIGHT			; move drop location to between left/right borders
+				SEC
+				SBC FIELDLEFT			; get width as right-LEFT
+				CLC
+				LSR						; divide by 2
+				AND #$FE				; divisible by 2
+				CLC
+				ADC FIELDORIGIN			; add left offset.
+			
 RANDOMTOP		STA PLOTCOLUMN
 				STA BLOCKCOLUMN
 				
@@ -483,20 +494,16 @@ BASELINE		LDA #$17				; row 24
 				AND #$0F				; clear bottom nibble
 				ORA #$50				; adds dark grey to bottom
 				STA CHAR
-				;LDX FIELDRIGHT
-				;DEX						; column 20 to 0
-				LDX #$14
-				STX PLOTCOLUMN			
+
+				LDA FIELDORIGIN
+				CLC
+				ADC #$14				; baseline is 20px wide
+				STA PLOTCOLUMN			
 BASELINELOOP	DEC PLOTCOLUMN
 				JSR PLOTQUICK			; PLOT CHAR
 				LDA PLOTCOLUMN			; last COLUMN?
-				;SEC
-				;SBC #$01
-				;CMP FIELDLEFT
+				CMP FIELDORIGIN
 				BNE BASELINELOOP		; draw next column of line
-
-
-
 
 				RTS
 ;/DRAWBORDER				
@@ -533,12 +540,15 @@ DRAWBAR			LDA #$17				; row 24
 				AND #$0F				; clear bottom nibble
 				ORA #$F0				; adds white to bottom
 				STA CHAR
-				LDX PROGRESSBARL
+				LDA PROGRESSBARL
 				BEQ NOBAR
-				STX PLOTCOLUMN			
+				CLC
+				ADC FIELDORIGIN
+				STA PLOTCOLUMN			
 DRAWBARLOOP		DEC PLOTCOLUMN
 				JSR PLOTQUICK			; PLOT CHAR
 				LDA PLOTCOLUMN			; last COLUMN?
+				CMP FIELDORIGIN			
 				BNE DRAWBARLOOP			; draw next column of line
 				
 NOBAR				RTS
@@ -899,6 +909,7 @@ INCSCORE		SED						; set decimal mode
 				LDA PLAYERSCORE			; if rolled over to zero, add one to 100s byte
 				ADC #$01
 				STA PLAYERSCORE
+				CLD
 
 LEVELUP			INC BORDERCOLOR			; change border to indicate level up
 
