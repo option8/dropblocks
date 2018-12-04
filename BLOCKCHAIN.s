@@ -21,15 +21,15 @@ ATTRACTING		EQU		$40			; in attract mode?
 PROCESSING		EQU		$41			; do we need to loop again?
 
 BORDERCOLOR		EQU		$09			; border color changes to indicate level up
-;HISCORE			EQU		$0A	
 PROGRESS 		EQU		$FD			; cleared blocks
 
-
-PROGRESSBARL		EQU		$1F			; length of the progress bar
-FIELDORIGIN		EQU		$1C				; where to draw the playfield
+PROGRESSBARL	EQU		$1F			; length of the progress bar
+FIELDORIGIN		EQU		$1C			; where to draw the playfield
 FIELDLEFT		EQU		$ED	
 FIELDRIGHT		EQU		$EF	
 
+BUMPFLAG		EQU		$0A			; whether to bump up opponent's pixels
+LOSEFLAG		EQU		$CD			; lose the game
 
 **************************************************
 * Apple Standard Memory Locations
@@ -91,6 +91,7 @@ SPEED		EQU		$F1
 				STA PLAYERSCORE
 				STA PLAYERSCORE+1
 				STA BORDERCOLOR					; border starts pink (BB) from BORDERCOLORS LUT
+				STA LOSEFLAG
 
 				LDA #$00						; all the way to the left side
 				STA FIELDORIGIN					
@@ -119,9 +120,15 @@ ATTRACT
 * attract loop animation? instructions?
 				JSR NEXTSCREEN
 
+				LDA LOSEFLAG			; did the game end?
+				BNE LOSEGAME
+
 				LDA KEY					; check for keydown
 				CMP #$A0				; space bar 
-				BEQ GOTSPACE			; advance to game on SPACE
+				BEQ STARTGAME			; advance to game on SPACE
+
+				CMP #$9B				; ESC
+				BEQ END					; exit on ESC?
 
 				LDA SPEED				; let's do an interframe delay
 				JSR WAIT
@@ -129,7 +136,72 @@ ATTRACT
 				JMP ATTRACT
 				
 STARTGAME		STA STROBE
-				;JMP MAIN				; back to waiting for a key
+				JMP PLAYBALL			
+
+**************************************************
+*	keyboard input handling
+**************************************************
+				
+GOTLEFT			STA STROBE
+				JSR MOVEBLOCKLEFT
+				JMP MAINLOOP
+
+GOTRIGHT		STA STROBE
+				JSR MOVEBLOCKRIGHT
+				JMP MAINLOOP
+
+PLAYBALL		LDA #$00
+				STA ATTRACTING			; leave ATTRACT mode
+				JSR RESTART
+				JMP MAINLOOP
+
+GOTRESET		LDA #$01
+				STA ATTRACTING			; ATTRACT mode
+				JSR RESTART
+				JMP ATTRACT				; otherwise, attract loop.
+
+
+END				STA STROBE
+				STA ALTTEXTOFF
+				STA TXTSET
+				JSR HOME
+				RTS						; END	
+					
+
+
+RESTART			LDA #$00
+				STA STROBE
+				STA BORDERCOLOR
+				STA LOSEFLAG
+
+				LDA FIELDORIGIN			; all the way to the left side
+				STA FIELDLEFT
+				CLC
+				ADC #$14				; 20 columns to start
+				STA FIELDRIGHT
+
+				JSR DRAWBOARD
+				JSR RESETSCORE
+
+				LDA #$01				
+				STA PLOTROW				; stop the current block from polluting the new game
+				STA BLOCKROW
+
+
+				RTS
+
+*** LOSE FLAG
+
+LOSEGAME		LDA ATTRACTING			; in attract mode or not?
+				BEQ STARTOVER			; start at level 1
+				JMP GOTRESET			; reset in attract mode
+				
+STARTOVER		JMP PLAYBALL			; 
+
+*** LOSE FLAG
+
+
+
 
 **************************************************
 *	MAIN LOOP
@@ -140,10 +212,7 @@ MAIN
 MAINLOOP		
 
 				LDA KEY					; check for keydown
-				
-;				CMP #$A0				; space bar 
-;				BEQ GOTSPACE			; advance frame on SPACE
-					
+									
 				CMP #$CA				; J
 				BEQ GOTLEFT
 
@@ -151,7 +220,7 @@ MAINLOOP
 				BEQ GOTRIGHT
 
 				CMP #$D2				; R to reset
-				BEQ GOTRESET
+				BEQ PLAYBALL
 
 ; lower case
 				CMP #$EA				; j
@@ -161,7 +230,7 @@ MAINLOOP
 				BEQ GOTRIGHT
 
 				CMP #$F2				; r to reset
-				BEQ GOTRESET
+				BEQ PLAYBALL
 
 				CMP #$9B				; ESC
 				BEQ END					; exit on ESC?
@@ -179,44 +248,13 @@ GOFAST			LDA #$40				; if it's gone below #$40, then reset to 40 (#01 is no dela
 
 GOSLOW			JSR NEXTSCREEN			; animate one frame per loop
 
+				LDA LOSEFLAG			; did the game end?
+				BNE LOSEGAME
+
 GOLOOP			JMP MAINLOOP			; loop until a key
 				
 				
-**************************************************
-*	keyboard input handling
-**************************************************
-				
-GOTLEFT			STA STROBE
-				JSR MOVEBLOCKLEFT
-				JMP MAINLOOP
 
-GOTRIGHT		STA STROBE
-				JSR MOVEBLOCKRIGHT
-				JMP MAINLOOP
-
-GOTRESET
-GOTSPACE		STA STROBE
-				LDA #$00
-				STA BORDERCOLOR
-				STA ATTRACTING			; leave ATTRACT mode
-
-				LDA FIELDORIGIN			; all the way to the left side
-				STA FIELDLEFT
-				CLC
-				ADC #$14				; 20 columns to start
-				STA FIELDRIGHT
-
-				JSR DRAWBOARD
-				JSR RESETSCORE
-				JMP MAINLOOP
-
-
-END				STA STROBE
-				STA ALTTEXTOFF
-				STA TXTSET
-				JSR HOME
-				RTS						; END	
-					
 
 **************************************************
 *	subroutines
@@ -314,8 +352,6 @@ GETBLOCKCOLOR	JSR GETBLOCKPOS			; get current block color
 
 NEXTSCREEN
 
-*	MAIN LOOP
-
 RESETPROCESSING	LDA #$00				; PROCESSING = 0
 				STA PROCESSING
 DROPBLOCK		
@@ -383,12 +419,14 @@ NEXTSCREENDONE	RTS
 ;/NEXTSCREEN		
 				
 
+**************************************************
+*	blanks the screen
+**************************************************
 
 DRAWBOARD		JSR HOME							
 
 				LDA #$A0
 				STA SPEED						; re-using the applesoft variable. fun.
-
 
 				STA ALTTEXTOFF					; display main text page
 				JSR RNDINIT						; *should* cycle the random seed.
@@ -398,9 +436,6 @@ DRAWBOARD		JSR HOME
 
 
 
-**************************************************
-*	blanks the screen
-**************************************************
 ; FOR EACH ROW/COLUMN
 
 				LDA #$18				; X = 24
@@ -426,6 +461,10 @@ PLOTLINE		STA CHAR
 	
 ; 	/rowloop2		
 
+
+				JSR DRAWBORDER
+				RTS
+;/DRAWBOARD				
 
 **************************************************
 *	Draws the pink border, clears score
@@ -636,6 +675,10 @@ DONECHECKING
 				LDA #$01				; at row 1?
 				CMP ROW
 				BNE CHECKROWLOOP		; loopty rows
+				
+				STA LOSEFLAG			; made it to ROW 1 - LOSE GAME
+				
+
 ;/CHECKROWLOOP
 
 COLUMNSHORT		LDA FIELDLEFT 
@@ -659,11 +702,23 @@ COLUMNSHORT		LDA FIELDLEFT
 **************************************************
 CHECKPIXEL								; get pixel color
 				JSR RESETPIXEL						
-
+					
 				JSR GETCHAR				; current pixel value to A
 				STA BLOCKCHAR			; store current color
+				CMP #$55
+				BEQ CHECKSHORT			; skip grey pixels.
+				LDA BLOCKCHAR
 				BNE CHECKINGPX			; not blank, check on.
-				RTS						; ==0, DONE CHECKING
+CHECKSHORT		RTS						; ==0, DONE CHECKING
+
+
+;CHECKPIXEL								; get pixel color
+;				JSR RESETPIXEL						
+;
+;				JSR GETCHAR				; current pixel value to A
+;				STA BLOCKCHAR			; store current color
+;				BNE CHECKINGPX			; not blank, check on.
+;				RTS						; ==0, DONE CHECKING
 					
 CHECKINGPX				
 CHECKABOVE		DEC PLOTROW				; check above	
@@ -909,6 +964,89 @@ COLLAPSEDONE	RTS
 ;/COLLAPSE
 
 **************************************************
+*	loops through columns/rows 
+*	bumps each pixel up by one
+**************************************************
+
+BUMPPIXELS
+				LDA #$0
+				STA BUMPFLAG			; just do this once (for now)
+
+BUMPCOLUMN		LDX FIELDRIGHT
+				DEX
+				DEX						; column 20 to 0
+				STX COLUMN
+BUMPCOLUMNLOOP	DEC COLUMN
+
+BUMPROW			LDA #$0					; start at row 0
+				STA ROW
+BUMPROWLOOP		INC ROW				
+
+				JSR BUMPPIXEL			; move pixels up by one
+
+DONEBUMPING
+
+				LDA #$16				; at row 22?
+				CMP ROW
+				BNE BUMPROWLOOP			; loopty rows
+;/BUMPROWLOOP
+
+BUMPSHORT		DEC COLUMN				; every other column
+				LDA FIELDLEFT 
+				CLC
+				ADC #$02				; at COLUMN 2?
+				CMP COLUMN
+				BNE BUMPCOLUMNLOOP		; loopty columns
+;/BUMPCOLUMNLOOP				
+				
+				LDA #$16				; row 23 needs random blocks
+				STA ROW
+RANDCOLUMN		LDX FIELDRIGHT
+				DEX
+				DEX						; column 20 to 0
+				STX COLUMN
+RANDCOLUMNLOOP	DEC COLUMN
+				JSR RESETPIXEL
+				LDA #$55				; shorten the playfield
+				STA CHAR				; store px color
+				JSR PLOTQUICK			; plot over pixel.
+				DEC PLOTCOLUMN
+				JSR PLOTQUICK			; plot over pixel.
+				DEC COLUMN
+				
+				LDA COLUMN
+				SEC
+				SBC #$02
+				CMP FIELDLEFT
+				BNE RANDCOLUMNLOOP
+				
+				RTS
+;/BUMPPIXELS
+
+
+
+
+BUMPPIXEL		JSR RESETPIXEL						
+					
+				JSR GETCHAR				; current pixel value to A
+				STA BLOCKCHAR			; store current color
+				BNE BUMPINGPX			; not blank, check on.
+				RTS						; ==0, DONE CHECKING
+
+BUMPINGPX		DEC PLOTROW				; go up 1 ROW	
+				LDA BLOCKCHAR			; get pixel color
+				STA CHAR				; store px color
+				JSR PLOTQUICK			; plot over pixel above.
+				DEC PLOTCOLUMN
+				JSR PLOTQUICK			; plot over pixel-1 above.
+				
+				RTS
+
+
+
+
+
+**************************************************
 *	prints one CHAR at PLOTROW,PLOTCOLUMN - clobbers A,Y
 *	used for plotting background elements that don't need collision detection
 **************************************************
@@ -967,7 +1105,6 @@ INCSCORE		SED						; set decimal mode
 				ADC #$01
 				STA PLAYERSCORE+1
 				
-				
 				BNE SCOREDONE			; if not rolled over, skip
 				CLC						
 				LDA PLAYERSCORE			; if rolled over to zero, add one to 100s byte
@@ -979,10 +1116,9 @@ LEVELUP			INC BORDERCOLOR			; change border to indicate level up
 
 										; make play field shorter, narrower with each levelup?
 										; add to difficulty?
-;				INC FIELDLEFT						
-;				INC FIELDLEFT						
-;				DEC FIELDRIGHT					
-;				DEC FIELDRIGHT					
+				LDA #$1
+				STA BUMPFLAG			; just do this once (for now)
+				JSR BUMPPIXELS
 										
 				JSR DRAWBORDER			
 
