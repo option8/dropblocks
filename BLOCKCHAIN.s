@@ -229,6 +229,15 @@ MAINLOOP
 				CMP #$EC				; l
 				BEQ GOTRIGHT
 
+; drop down
+				CMP #$CB				; K
+				BEQ NODELAY
+				CMP #$EB				; K
+				BEQ NODELAY
+
+
+
+
 				CMP #$F2				; r to reset
 				BEQ PLAYBALL
 
@@ -236,17 +245,18 @@ MAINLOOP
 				BEQ END					; exit on ESC?
 
 
-				LDA SPEED				; let's do an interframe delay
+LOADDELAY		LDA SPEED				; let's do an interframe delay
 				CMP #$40
 				BCC GOFAST				; #$40 is plenty fast
 				JSR WAIT
-				JMP GOSLOW
+				JMP NODELAY
 
 GOFAST			LDA #$40				; if it's gone below #$40, then reset to 40 (#01 is no delay)
 				STA SPEED
 				JSR WAIT
 
-GOSLOW			JSR NEXTSCREEN			; animate one frame per loop
+NODELAY			
+				JSR NEXTSCREEN			; animate one frame per loop
 
 				LDA LOSEFLAG			; did the game end?
 				BNE LOSEGAME
@@ -381,6 +391,7 @@ PROCESSPIXELS
 				BNE PROCESSPIXELS		; keep combining until done.
 				
 DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of screen
+				STA STROBE				; clear out the keyboard buffer from fast drop	
 				LDA #$01				
 				STA PLOTROW
 				STA BLOCKROW
