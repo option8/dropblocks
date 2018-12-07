@@ -15,6 +15,7 @@ PLOTROW			EQU		$FE			; row/col in text page
 PLOTCOLUMN		EQU		$FF
 RNDSEED			EQU		$EA			; +eb +ec
 BLOCKCHAR		EQU		$CE			; color of current dropping block
+NEXTBLOCK		EQU		$CD			; color of next block to drop
 BLOCKROW		EQU		$1D			; dropping block row
 BLOCKCOLUMN		EQU		$1E			; dropping block column
 ATTRACTING		EQU		$40			; in attract mode?
@@ -29,7 +30,7 @@ FIELDLEFT		EQU		$ED
 FIELDRIGHT		EQU		$EF	
 
 BUMPFLAG		EQU		$0A			; whether to bump up opponent's pixels
-LOSEFLAG		EQU		$CD			; lose the game
+LOSEFLAG		EQU		$CF			; lose the game
 
 **************************************************
 * Apple Standard Memory Locations
@@ -85,13 +86,12 @@ SPEED		EQU		$F1
 				
 				LDA #$00
 				STA BLINK						; blinking text? no thanks.
-;				STA BGCHAR
 				STA LORES						; low res graphics mode
-;				STA HISCORE
 				STA PLAYERSCORE
 				STA PLAYERSCORE+1
 				STA BORDERCOLOR					; border starts pink (BB) from BORDERCOLORS LUT
 				STA LOSEFLAG
+				STA BUMPFLAG
 
 				LDA #$00						; all the way to the left side
 				STA FIELDORIGIN					
@@ -108,7 +108,9 @@ SPEED		EQU		$F1
 				LDA #$01
 				STA ATTRACTING					; in ATTRACT mode
 				
-				
+				JSR RANDOMBLOCK					; get a block color
+				STA NEXTBLOCK					; get initial block color
+			
 				
 **************************************************
 *	MAIN LOOP
@@ -137,6 +139,32 @@ ATTRACT
 				
 STARTGAME		STA STROBE
 				JMP PLAYBALL			
+
+
+RESTART			LDA #$00
+				STA STROBE
+				STA BORDERCOLOR
+				STA LOSEFLAG
+
+				LDA FIELDORIGIN			; all the way to the left side
+				STA FIELDLEFT
+				CLC
+				ADC #$14				; 20 columns to start
+				STA FIELDRIGHT
+
+				JSR DRAWBOARD
+				JSR RESETSCORE
+
+				LDA #$01				
+				STA PLOTROW				; stop the current block from polluting the new game
+				STA BLOCKROW
+				JSR RANDOMBLOCK			; get a new block color to start off with.
+				STA BLOCKCHAR
+				STA NEXTBLOCK
+
+				RTS
+
+
 
 **************************************************
 *	keyboard input handling
@@ -169,38 +197,27 @@ END				STA STROBE
 					
 
 
-RESTART			LDA #$00
-				STA STROBE
-				STA BORDERCOLOR
-				STA LOSEFLAG
-
-				LDA FIELDORIGIN			; all the way to the left side
-				STA FIELDLEFT
-				CLC
-				ADC #$14				; 20 columns to start
-				STA FIELDRIGHT
-
-				JSR DRAWBOARD
-				JSR RESETSCORE
-
-				LDA #$01				
-				STA PLOTROW				; stop the current block from polluting the new game
-				STA BLOCKROW
-
-
-				RTS
-
 *** LOSE FLAG
 
-LOSEGAME		LDA ATTRACTING			; in attract mode or not?
+LOSEGAME		JSR BONK
+				LDA #$17
+				STA BLOCKROW
+
+LOSELOOP		LDA #$1
+				STA BUMPFLAG			; just do this once (for now)
+				JSR BUMPPIXELS
+				JSR CLICK				; bump playfield up and CLICK?
+
+				DEC BLOCKROW
+				BNE LOSELOOP			
+
+				LDA ATTRACTING			; in attract mode or not?
 				BEQ STARTOVER			; start at level 1
 				JMP GOTRESET			; reset in attract mode
 				
 STARTOVER		JMP PLAYBALL			; 
 
 *** LOSE FLAG
-
-
 
 
 **************************************************
@@ -269,6 +286,9 @@ GOLOOP			JMP MAINLOOP			; loop until a key
 **************************************************
 *	subroutines
 **************************************************
+
+
+
 
 **************************************************
 *	move the falling block left/right on keystroke
@@ -379,7 +399,6 @@ FALLBLOCK		LDA BLOCKCHAR			; store block color to CHAR
 				DEC PLOTCOLUMN
 				DEC PLOTROW
 				JSR CLEARBLOCKL
-				;INC PROCESSING			; not sure why, but i'm keeping track of this still.
 				INC BLOCKROW			; drop down to do it again
 				RTS						; shortcut.
 
@@ -391,39 +410,42 @@ PROCESSPIXELS
 				BNE PROCESSPIXELS		; keep combining until done.
 				
 DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of screen
-				STA STROBE				; clear out the keyboard buffer from fast drop	
-				LDA #$01				
+										; draw upcoming block at 0, move previous upcoming down to 1
+				STA STROBE				; clear out the keyboard buffer from fast drop
+				LDA #$0				
 				STA PLOTROW
 				STA BLOCKROW
-				
-				LDA ATTRACTING
+	
+				LDA ATTRACTING			; if ATTRACTING, do random column. 
 				BEQ MIDDLETOP			; 0=done attracting, now playing with block in middle
 				JSR RANDOMCOLUMN		; gets random column from 2-18 for attract mode
 				JMP RANDOMTOP
 				
-MIDDLETOP		LDA FIELDRIGHT			; move drop location to between left/right borders
-				SEC
-				SBC FIELDLEFT			; get width as right-LEFT
-				CLC
-				LSR						; divide by 2
-				AND #$FE				; divisible by 2
-				CLC
-				ADC FIELDORIGIN			; add left offset.
-			
-RANDOMTOP		STA PLOTCOLUMN
-				STA BLOCKCOLUMN
+MIDDLETOP		JSR CENTERCOLUMN	
+
+RANDOMTOP		STA PLOTCOLUMN			
+				STA BLOCKCOLUMN										
 				
-				JSR GETCHAR				; check to see if row1 is blank
-				BEQ GETNEXTBLOCK		; if not, jump to reset.
-				RTS						; otherwise, continue
-										
-				
-GETNEXTBLOCK	JSR RANDOMBLOCK			; get a block color
+				LDA NEXTBLOCK
+				STA BLOCKCHAR			; transfer upcoming block to current
+
+				JSR RANDOMBLOCK			; get a block color
 				STA CHAR
-				STA BLOCKCHAR
+				STA NEXTBLOCK			; color of upcoming block
 				JSR PLOTQUICK
 				INC PLOTCOLUMN
 				JSR PLOTQUICK
+				
+				INC PLOTROW				; down to row 1
+				INC BLOCKROW			; set falling block position
+				DEC PLOTCOLUMN			
+
+GETNEXTBLOCK	LDA BLOCKCHAR			; take current block color and draw the dropping block	
+				STA CHAR
+				JSR PLOTQUICK
+				INC PLOTCOLUMN
+				JSR PLOTQUICK
+				
 
 NEXTSCREENDONE	RTS
 
@@ -651,6 +673,20 @@ RESETPIXEL		LDX COLUMN				; transfer checkpixel to plotpixel
 				RTS
 ;/RESETPIXEL
 
+**************************************************
+* returns with "middle" column in accumulator
+**************************************************
+
+CENTERCOLUMN	LDA FIELDRIGHT			; move drop location to between left/right borders
+				SEC
+				SBC FIELDLEFT			; get width as right-LEFT
+				CLC
+				LSR						; divide by 2
+				AND #$FE				; divisible by 2
+				CLC
+				ADC FIELDLEFT			; add left offset.
+				RTS	
+;/CENTERCOLUMN
 
 **************************************************
 *	loops through columns/rows to find neighboring
@@ -976,7 +1012,7 @@ COLLAPSEDONE	RTS
 
 **************************************************
 *	loops through columns/rows 
-*	bumps each pixel up by one
+*	bumps each pixel up by one - clobbers X, A
 **************************************************
 
 BUMPPIXELS
@@ -1160,16 +1196,16 @@ LOOP10			JSR INCSCORE
 RANDOMBLOCK		LDY BORDERCOLOR	; 0-15 for each level
 				INY
 				LDA #$00		
-				STA BLOCKCHAR	; set BLOCKCHAR to 0 to hold our temp value
+				STA NEXTBLOCK	; set BLOCKCHAR to 0 to hold our temp value
 				
 ADD16			JSR RND16		; gets 0-F
 				CLC
-				ADC BLOCKCHAR	; adds random16 to BLOCKCHAR
-				STA BLOCKCHAR
+				ADC NEXTBLOCK	; adds random16 to BLOCKCHAR
+				STA NEXTBLOCK
 				DEY
 				BNE ADD16		; loop for each level of difficulty
 				
-				LDX BLOCKCHAR		; puts accumulated random # to X
+				LDX NEXTBLOCK		; puts accumulated random # to X
 				LDA BLOCKCOLORS,X	; gets byte from table
 				RTS
 
