@@ -32,6 +32,12 @@ FIELDRIGHT		EQU		$EF
 BUMPFLAG		EQU		$0A			; whether to bump up opponent's pixels
 LOSEFLAG		EQU		$CF			; lose the game
 
+CHAINPROGRESS	EQU		$CC
+
+SPRITELO		EQU		$07			; address of sprite pixel table
+SPRITEHI		EQU		$08
+SPRITEOFFSET	EQU		$0A
+
 **************************************************
 * Apple Standard Memory Locations
 **************************************************
@@ -93,11 +99,12 @@ SPEED		EQU		$F1
 				STA LOSEFLAG
 				STA BUMPFLAG
 
-				LDA #$00						; all the way to the left side
+				LDA #$0A						; all the way to the left side = 0
 				STA FIELDORIGIN					
 				STA FIELDLEFT
 				CLC
-				ADC #$14						; 20 columns wide to start
+				;ADC #$14						; 20 columns wide to start
+				ADC #$12						; 18 columns wide to start
 				STA FIELDRIGHT				
 
 
@@ -111,6 +118,11 @@ SPEED		EQU		$F1
 				JSR RANDOMBLOCK					; get a block color
 				STA NEXTBLOCK					; get initial block color
 			
+				LDA #$0							; row to start the chain
+				STA ROW	
+				STA CHAINPROGRESS
+				STA PROGRESS						
+				JSR DISPLAYCHAIN				; show the chain graphic			
 				
 **************************************************
 *	MAIN LOOP
@@ -149,11 +161,18 @@ RESTART			LDA #$00
 				LDA FIELDORIGIN			; all the way to the left side
 				STA FIELDLEFT
 				CLC
-				ADC #$14				; 20 columns to start
+				;ADC #$14				; 20 columns to start
+				ADC #$12				; 20 columns to start
 				STA FIELDRIGHT
 
 				JSR DRAWBOARD
 				JSR RESETSCORE
+				
+				LDA #$0							; row to start the chain
+				STA ROW	
+				STA CHAINPROGRESS
+				STA PROGRESS						
+				JSR DISPLAYCHAIN				; show the chain graphic
 
 				LDA #$01				
 				STA PLOTROW				; stop the current block from polluting the new game
@@ -445,7 +464,13 @@ GETNEXTBLOCK	LDA BLOCKCHAR			; take current block color and draw the dropping bl
 				JSR PLOTQUICK
 				INC PLOTCOLUMN
 				JSR PLOTQUICK
-				
+
+
+				INC CHAINPROGRESS
+				JSR DISPLAYCHAIN
+
+				JSR UPDATESCORE
+
 
 NEXTSCREENDONE	RTS
 
@@ -475,7 +500,8 @@ DRAWBOARD		JSR HOME
 				STA PLOTROW
 ROWLOOP2 								; (ROW 24 to 0)
 				DEC PLOTROW				;	start columnloop (COLUMN 0 to 20)
-				LDA FIELDRIGHT
+;				LDA FIELDRIGHT
+				LDA #$28				; clear all 40 cols.
 				STA PLOTCOLUMN
 COLUMNLOOP2		DEC PLOTCOLUMN	
 
@@ -580,7 +606,8 @@ BASELINE		LDA #$17				; row 24
 
 				LDA FIELDORIGIN
 				CLC
-				ADC #$14				; baseline is 20px wide
+;				ADC #$14				; baseline is 20px wide
+				ADC #$12				; baseline is 20px wide
 				STA PLOTCOLUMN			
 BASELINELOOP	DEC PLOTCOLUMN
 				JSR PLOTQUICK			; PLOT CHAR
@@ -623,17 +650,18 @@ DRAWBAR			LDA #$17				; row 24
 				AND #$0F				; clear bottom nibble
 				ORA #$F0				; adds white to bottom
 				STA CHAR
-				LDA PROGRESSBARL
-				BEQ NOBAR
+				LDA PROGRESSBARL				
+				BEQ NOBAR				
 				CLC
 				ADC FIELDORIGIN
+				CMP FIELDRIGHT
+				BCS NOBAR				; longer than field width. skip drawing for now
 				STA PLOTCOLUMN			
 DRAWBARLOOP		DEC PLOTCOLUMN
 				JSR PLOTQUICK			; PLOT CHAR
 				LDA PLOTCOLUMN			; last COLUMN?
 				CMP FIELDORIGIN			
-				BNE DRAWBARLOOP			; draw next column of line
-				
+				BNE DRAWBARLOOP			; draw next column of line				
 NOBAR				RTS
 ;/PROGRESSBAR
 
@@ -666,10 +694,17 @@ CLEARBLOCKR
 *	matches plot position to pixel getting processed 
 **************************************************
 
-RESETPIXEL		LDX COLUMN				; transfer checkpixel to plotpixel
-				STX PLOTCOLUMN
-				LDX ROW
-				STX PLOTROW
+;RESETPIXEL		LDX COLUMN				; transfer checkpixel to plotpixel
+;				STX PLOTCOLUMN
+;				LDX ROW
+;				STX PLOTROW
+;				RTS
+;;/RESETPIXEL
+
+RESETPIXEL		LDA COLUMN				; transfer checkpixel to plotpixel
+				STA PLOTCOLUMN
+				LDA ROW
+				STA PLOTROW
 				RTS
 ;/RESETPIXEL
 
@@ -683,6 +718,7 @@ CENTERCOLUMN	LDA FIELDRIGHT			; move drop location to between left/right borders
 				CLC
 				LSR						; divide by 2
 				AND #$FE				; divisible by 2
+;				ORA #$01				; 
 				CLC
 				ADC FIELDLEFT			; add left offset.
 				RTS	
@@ -890,6 +926,7 @@ CLEARBLOCK		STX CHAR
 				JSR CLICK
 				JSR INCSCORE
 				JSR PROGRESSBAR
+
 DONECHECKINGPX	RTS
 
 
@@ -1225,6 +1262,7 @@ RANDOMCOLUMN	JSR RND16		; gets 0-F into accumulator
 				LDX FIELDRIGHT	; decrement right border for black space
 				DEX
 				DEX
+				;DEX
 				STX $06			; store this temporarily
 				
 				CMP $06			; compare to right border 
@@ -1233,11 +1271,8 @@ RANDOMCOLUMN	JSR RND16		; gets 0-F into accumulator
 				LSR				; divide by 2, remainder in Carry
 				CLC				; clear remainder
 				ROL				; multiply by 2, should result in an even number 2-18
-				
-				
-				
-				
-				
+				;ORA #$01		; ODD NUMBER
+
 				RTS
 ;/RANDOMCOLUMN
 
@@ -1314,15 +1349,194 @@ RND16			JSR RND			; limits RND output to 0-F
 				AND #$0F		; strips high nibble
 				RTS
 
+
+**************************************************
+* Display the chain graphic 
+*	9px by 24 = 216 bytes.
+**************************************************
+
+DISPLAYCHAIN	LDA CHAINPROGRESS	; how far down to start the chain display
+				CMP #$1B			; is it the last row?
+				BNE	RESETCHAIN
+				LDA #$0
+				STA CHAINPROGRESS
+RESETCHAIN		STA ROW
+				LDA #$0				; COLUMN=0, X=0, ROW=0
+				STA COLUMN
+				STA PROGRESS		; reusing this as iteration counter
+				TAX					; start at beginning of CHAIN
+				
+				; loop over 9 columns
+CHAINLOOP		LDA COLUMN			; add 22 to COLUMN
+;				CLC
+;				ADC #$14			; CHAIN ON FAR LEFT NOW
+				STA PLOTCOLUMN		; set PLOTCOLUMN
+				LDA ROW
+				STA PLOTROW			; set PLOTROW
+				
+				LDA CHAIN,X			; get CHAIN,X
+				STA CHAR			; set CHAR
+				JSR PLOTQUICK		; plot the pixel
+				
+				INX					; next pixel
+				INC COLUMN			; next column
+				LDA COLUMN
+				CMP #$09			; on last column?
+				BNE CHAINLOOP
+				LDA #$0
+				STA COLUMN			; reset column to 0
+				
+				INC ROW				; next ROW
+				INC PROGRESS
+				LDA ROW
+				CMP #$1B			; on row 24? *** loop here back to row 0
+				BNE CHAINLOOP2		
+
+				LDA #$0
+				STA ROW
+
+CHAINLOOP2		LDA PROGRESS		; how many iterations?
+				CMP #$1B			; 28 iterations is a full chain
+				BNE CHAINLOOP
+				
+				RTS
+;/DISPLAYCHAIN
+
+
+
+
+**************************************************
+*	process two digit score (decimal) into two
+*	numeral sprites - clobbers A, X
+**************************************************
+
+UPDATESCORE
+
+* DIGIT 1s
+				LDA PLAYERSCORE+1
+* get low nibble of score
+* AND score with 0F
+				AND #$0F
+* load sprite for that digit
+				TAX
+
+				LDA DIGITSLO,X
+				STA SPRITELO
+				LDA DIGITSHI,X
+				STA SPRITEHI      
+
+* plotrow = 0
+				LDA #$0
+				STA PLOTROW
+* plotcolumn = #$25
+				LDA #$25
+				STA PLOTCOLUMN				
+				JSR PLOTSPRITE
+				
+
+* DIGIT 10s
+				LDA PLAYERSCORE+1
+* get HI nibble of score
+* AND score with F0
+				AND #$F0
+				LSR
+				LSR
+				LSR
+				LSR
+* load sprite for that digit
+				TAX
+
+				LDA DIGITSLO,X
+				STA SPRITELO
+				LDA DIGITSHI,X
+				STA SPRITEHI      
+
+* plotrow = 0
+				LDA #$0
+				STA PLOTROW
+* plotcolumn = #$25
+				LDA #$21
+				STA PLOTCOLUMN				
+				JSR PLOTSPRITE
+				
+* DIGIT 100s
+				LDA PLAYERSCORE
+				BEQ SKIPHUNDREDS
+* get low nibble of score
+* AND score with 0F
+				AND #$0F
+* load sprite for that digit
+				TAX
+
+				LDA DIGITSLO,X
+				STA SPRITELO
+				LDA DIGITSHI,X
+				STA SPRITEHI      
+
+* plotrow = 0
+				LDA #$0
+				STA PLOTROW
+* plotcolumn = #$25
+				LDA #$1D
+				STA PLOTCOLUMN				
+				JSR PLOTSPRITE
+				
+
+
+SKIPHUNDREDS
+				RTS
+
+
+**************************************************
+*	Draw a sprite at PLOTROW, PLOTCOLUMN - clobbers A, Y
+**************************************************
+
+PLOTSPRITE		
+				LDA #$0
+				STA SPRITEOFFSET		; set offset to 0
+
+				LDA #$0
+				STA ROW					; for each ROW in X
+
+SPRITEROWS		LDA #$0
+				STA COLUMN				; for each COLUMN in Y
+				LDA PLOTCOLUMN
+				CLC
+				ADC COLUMN
+				STA PLOTCOLUMN
+SPRITECOLUMNS	LDY SPRITEOFFSET
+				LDA (SPRITELO),Y		; LDA Sprite Origin,OFFSET
+				STA CHAR				; store character
+				JSR PLOTQUICK			; PLOT
+				
+				INC SPRITEOFFSET
+				INC PLOTCOLUMN
+				INC COLUMN
+				LDA #$02				; number sprites are 4 px wide
+				CMP COLUMN 
+				BCS SPRITECOLUMNS		; do next column
+				
+				INC PLOTROW
+				INC ROW
+				DEC PLOTCOLUMN
+				LDA PLOTCOLUMN			; PLOTCOLUMN back to sprite's origin
+				SEC
+				SBC #$02
+				STA PLOTCOLUMN
+				
+				LDA #$02				; number sprites are 3px tall
+				CMP ROW
+				BCS SPRITEROWS			; do next row	
+							
+SPRITEDONE		RTS
+				
+
+
 **************************************************
 * Data Tables
 *
 **************************************************
-; Apple logo colors :)
-;BLOCKCOLORS		HEX	11,99,DD,CC,66,33,11,99,DD,CC,66,11,33,99,DD,CC
-
-***
-; add color chains per level, instead of narrowing field. ???
+; add color chains per level, instead of narrowing field. 
 BLOCKCOLORS			HEX	99,11,11,11,11,11,11,11,11,11,11,11,11,22,22,22
 					HEX 66,22,22,22,22,22,22,22,22,22,22,22,22,CC,CC,CC
 					HEX 44,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC,CC
@@ -1332,14 +1546,56 @@ BLOCKCOLORS			HEX	99,11,11,11,11,11,11,11,11,11,11,11,11,22,22,22
 
 ***
 
-;Goes up to 16 - hard mode?
-;BLOCKCOLORS	HEX	11,22,33,44,55,66,77,88,99,AA,BB,CC,DD,EE,FF,11
-
 ; Player score, two bytes to go up to 9999
 PLAYERSCORE		HEX 00,00
 
 
 BORDERCOLORS	HEX BB,33,AA,55,88,55,88,55,88
+
+
+CHAIN 			HEX 11,11,00,00,00,00,00,11,11
+				HEX	11,11,00,90,99,99,90,11,11
+				HEX	11,11,90,99,99,88,89,11,11
+				HEX	01,11,99,99,11,11,11,11,01
+				HEX	00,00,99,99,01,01,81,88,00
+				HEX	00,00,99,99,d0,d0,d8,88,00
+				HEX	d0,dd,99,99,dd,dd,dd,dd,d0
+				HEX	dd,dd,09,99,99,88,98,dd,dd
+				HEX	dd,dd,00,09,99,99,09,dd,dd
+				HEX	DD,DD,00,00,00,00,00,DD,DD
+				HEX	DD,DD,00,C0,CC,CC,C0,DD,DD
+				HEX	DD,DD,C0,CC,CC,44,4C,DD,DD
+				HEX	0D,DD,CC,CC,DD,DD,DD,DD,0D
+				HEX	00,00,CC,CC,0D,0D,4D,44,00
+				HEX	00,00,CC,CC,20,20,24,44,00
+				HEX	20,22,CC,CC,22,22,22,22,20
+				HEX	22,22,0C,CC,CC,44,C4,22,22
+				HEX	22,22,00,0C,CC,CC,0C,22,22
+				HEX	22,22,00,00,00,00,00,22,22
+				HEX	22,22,00,70,77,77,70,22,22
+				HEX	22,22,70,77,77,33,37,22,22
+				HEX	02,22,77,77,22,22,22,22,02
+				HEX	00,00,77,77,02,02,32,33,00
+				HEX	00,00,77,77,10,10,13,33,00
+				HEX	10,11,77,77,11,11,11,11,10
+				HEX	11,11,07,77,77,33,73,11,11
+				HEX	11,11,00,07,77,77,07,11,11
+
+
+ZERO		HEX f0,f0,f0,ff,00,ff,ff,f0,FF
+ONE			HEX	f0,f0,00,00,ff,00,00,ff,00
+TWO			HEX	f0,f0,f0,F0,F0,FF,FF,F0,F0
+THREE		HEX	f0,f0,f0,00,F0,FF,F0,F0,FF
+FOUR		HEX	F0,00,F0,FF,F0,FF,00,00,FF
+FIVE		HEX	f0,f0,f0,FF,F0,F0,F0,F0,FF
+SIX			HEX	f0,f0,f0,FF,F0,F0,FF,F0,ff
+SEVEN		HEX	f0,f0,f0,00,00,FF,00,00,FF
+EIGHT		HEX	f0,f0,f0,FF,F0,FF,FF,F0,ff
+NINE		HEX	f0,f0,f0,FF,F0,FF,F0,F0,FF
+
+DIGITSLO	db <ZERO,<ONE,<TWO,<THREE,<FOUR,<FIVE,<SIX,<SEVEN,<EIGHT,<NINE
+DIGITSHI	db >ZERO,>ONE,>TWO,>THREE,>FOUR,>FIVE,>SIX,>SEVEN,>EIGHT,>NINE
+
 
 
 **************************************************
