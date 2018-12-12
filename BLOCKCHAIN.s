@@ -93,6 +93,7 @@ SPEED		EQU		$F1
 				LDA #$00
 				STA BLINK						; blinking text? no thanks.
 				STA LORES						; low res graphics mode
+				STA MIXCLR
 				STA PLAYERSCORE
 				STA PLAYERSCORE+1
 				STA BORDERCOLOR					; border starts pink (BB) from BORDERCOLORS LUT
@@ -1283,7 +1284,7 @@ RANDOMCOLUMN	JSR RND16		; gets 0-F into accumulator
 CLICK			LDX #$06
 CLICKLOOP		LDA #$10				; SLIGHT DELAY
 				JSR WAIT
-				LDA SPEAKER				
+				STA SPEAKER				
 				DEX
 				BNE CLICKLOOP
 				RTS
@@ -1292,7 +1293,7 @@ CLICKLOOP		LDA #$10				; SLIGHT DELAY
 BEEP			LDX #$30
 BEEPLOOP		LDA #$08				; short DELAY
 				JSR WAIT
-				LDA SPEAKER				
+				STA SPEAKER				
 				DEX
 				BNE BEEPLOOP
 				RTS
@@ -1302,7 +1303,7 @@ BEEPLOOP		LDA #$08				; short DELAY
 BONK			LDX #$50
 BONKLOOP		LDA #$20				; longer DELAY
 				JSR WAIT
-				LDA SPEAKER				
+				STA SPEAKER				
 				DEX
 				BNE BONKLOOP
 				RTS
