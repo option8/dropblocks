@@ -1,9 +1,7 @@
-	DSK DROPBLOCKS
+	DSK ONEPLAYER
 
 **************************************************
-* To Do:
-*	*	two-player mode
-*	
+* single-player mode - add 1 or 2 switch?
 **************************************************
 * Variables
 **************************************************
@@ -15,20 +13,23 @@ PLOTROW			EQU		$FE			; row/col in text page
 PLOTCOLUMN		EQU		$FF
 RNDSEED			EQU		$EA			; +eb +ec
 BLOCKCHAR		EQU		$CE			; color of current dropping block
+NEXTBLOCK		EQU		$CD			; color of next block to drop
 BLOCKROW		EQU		$1D			; dropping block row
 BLOCKCOLUMN		EQU		$1E			; dropping block column
 ATTRACTING		EQU		$40			; in attract mode?
 PROCESSING		EQU		$41			; do we need to loop again?
 
 BORDERCOLOR		EQU		$09			; border color changes to indicate level up
-;HISCORE			EQU		$0A	
+SWITCHSIDE		EQU		$0A	
 PROGRESS 		EQU		$FD			; cleared blocks
 
+PROGRESSBARL	EQU		$1F			; length of the progress bar
 
-PROGRESSBARL		EQU		$1F			; length of the progress bar
-FIELDORIGIN		EQU		$1C				; where to draw the playfield
+BUMPFLAG		EQU		$1C			; whether to bump up opponent's pixels
+
 FIELDLEFT		EQU		$ED	
 FIELDRIGHT		EQU		$EF	
+LOSEFLAG		EQU		$CC			; lose the game
 
 
 **************************************************
@@ -85,33 +86,33 @@ SPEED		EQU		$F1
 				
 				LDA #$00
 				STA BLINK						; blinking text? no thanks.
-;				STA BGCHAR
 				STA LORES						; low res graphics mode
-;				STA HISCORE
+				STA MIXCLR						; For IIGS
 				STA PLAYERSCORE
 				STA PLAYERSCORE+1
 				STA BORDERCOLOR					; border starts pink (BB) from BORDERCOLORS LUT
+				STA SWITCHSIDE
+				STA BUMPFLAG					
+				STA LOSEFLAG
 
 				LDA #$00						; all the way to the left side
-				STA FIELDORIGIN					
 				STA FIELDLEFT
 				CLC
 				ADC #$14						; 20 columns wide to start
 				STA FIELDRIGHT				
 
-
 				JSR CLRLORES					; clear screen		
 
-				
 				JSR DRAWBOARD
 				LDA #$01
 				STA ATTRACTING					; in ATTRACT mode
 				
-				
+				JSR RANDOMBLOCK					; get a block color
+				STA NEXTBLOCK					; get initial block color
 				
 **************************************************
-*	MAIN LOOP
-*	waits for keyboard input, moves cursor, etc
+*	ATTRACT LOOP
+*	waits for keyboard input, plays at random
 **************************************************
 
 ATTRACT		
@@ -119,9 +120,15 @@ ATTRACT
 * attract loop animation? instructions?
 				JSR NEXTSCREEN
 
+				LDA LOSEFLAG			; did the game end?
+				BNE LOSEGAME
+
 				LDA KEY					; check for keydown
 				CMP #$A0				; space bar 
-				BEQ GOTSPACE			; advance to game on SPACE
+				BEQ STARTGAME			; advance to game on SPACE
+
+				CMP #$9B				; ESC
+				BEQ END					; exit on ESC?
 
 				LDA SPEED				; let's do an interframe delay
 				JSR WAIT
@@ -129,48 +136,99 @@ ATTRACT
 				JMP ATTRACT
 				
 STARTGAME		STA STROBE
-				;JMP MAIN				; back to waiting for a key
+				JMP PLAYBALL			
+
+LOSEGAME		LDA ATTRACTING			; in attract mode or not?
+				BEQ STARTOVER			; start at level 1
+				JMP GOTRESET			; reset in attract mode
+				
+STARTOVER		JMP PLAYBALL			; 
+
+END				STA STROBE
+				STA ALTTEXTOFF
+				STA TXTSET
+				JSR HOME
+				RTS						; END	
+
+
 
 **************************************************
 *	MAIN LOOP
-*	waits for keyboard input, moves cursor, etc
+*	waits for keyboard input
 **************************************************
 
 MAIN		
 MAINLOOP		
 
 				LDA KEY					; check for keydown
-;				CMP #$A0				; space bar 
-;				BEQ GOTSPACE			; advance frame on SPACE
-					
-				CMP #$CA				; J
-				BEQ GOTLEFT
-
-				CMP #$CC				; L
-				BEQ GOTRIGHT
 
 				CMP #$D2				; R to reset
-				BEQ GOTRESET
+				BEQ PLAYBALL
 
 				CMP #$9B				; ESC
 				BEQ END					; exit on ESC?
 
+				LDA FIELDLEFT
+				BEQ LEFTSIDE
 
-				LDA SPEED				; let's do an interframe delay
+				LDA KEY					; check for keydown
+
+RIGHTSIDE		CMP #$CA				; J
+				BEQ GOTLEFT
+				CMP #$EA				; J
+				BEQ GOTLEFT
+
+				CMP #$CC				; L
+				BEQ GOTRIGHT
+				CMP #$EC				; L
+				BEQ GOTRIGHT
+
+				CMP #$CB				; K
+				BEQ NODELAY
+				CMP #$EB				; K
+				BEQ NODELAY
+
+				JMP LOADDELAY
+
+				
+
+LEFTSIDE
+				LDA KEY					; check for keydown
+				CMP #$C1				; A
+				BEQ GOTLEFT
+				CMP #$E1				; A
+				BEQ GOTLEFT
+
+				CMP #$C4				; D
+				BEQ GOTRIGHT
+				CMP #$E4				; D
+				BEQ GOTRIGHT
+
+				CMP #$F3				; S
+				BEQ NODELAY
+				CMP #$D3				; S
+				BEQ NODELAY
+
+
+LOADDELAY		LDA SPEED				; let's do an interframe delay
 				CMP #$40
 				BCC GOFAST				; #$40 is plenty fast
 				JSR WAIT
-				JMP GOSLOW
+				JMP NODELAY
 
 GOFAST			LDA #$40				; if it's gone below #$40, then reset to 40 (#01 is no delay)
 				STA SPEED
 				JSR WAIT
 
-GOSLOW			JSR NEXTSCREEN			; animate one frame per loop
+NODELAY			
+				JSR NEXTSCREEN			; animate one frame per loop
+
+				LDA LOSEFLAG			; did the game end?
+				BNE LOSEGAME
 
 GOLOOP			JMP MAINLOOP			; loop until a key
-				
-				
+								
+
 **************************************************
 *	keyboard input handling
 **************************************************
@@ -183,13 +241,22 @@ GOTRIGHT		STA STROBE
 				JSR MOVEBLOCKRIGHT
 				JMP MAINLOOP
 
-GOTRESET
-GOTSPACE		STA STROBE
-				LDA #$00
-				STA BORDERCOLOR
+PLAYBALL		LDA #$00
 				STA ATTRACTING			; leave ATTRACT mode
+				JSR RESTART
+				JMP MAINLOOP
 
-				LDA FIELDORIGIN			; all the way to the left side
+GOTRESET		LDA #$01
+				STA ATTRACTING			; ATTRACT mode
+				JSR RESTART
+				JMP ATTRACT				; otherwise, attract loop.
+
+
+RESTART			LDA #$00
+				STA STROBE
+				STA BORDERCOLOR
+				STA LOSEFLAG
+
 				STA FIELDLEFT
 				CLC
 				ADC #$14				; 20 columns to start
@@ -197,14 +264,14 @@ GOTSPACE		STA STROBE
 
 				JSR DRAWBOARD
 				JSR RESETSCORE
-				JMP MAINLOOP
+
+				LDA #$01				
+				STA PLOTROW				; stop the current block from polluting the new game
+				STA BLOCKROW
 
 
-END				STA STROBE
-				STA ALTTEXTOFF
-				STA TXTSET
-				JSR HOME
-				RTS						; END	
+				RTS
+
 					
 
 **************************************************
@@ -216,8 +283,6 @@ END				STA STROBE
 **************************************************
 
 MOVEBLOCKLEFT							; got left
-				;LDA PROCESSING				; is PROCESSING == 0?
-				;BEQ DONEMOVING
 				LDA FIELDLEFT
 				CLC
 				ADC #$02				; if BLOCKCOLUMN = #02, can't move left					
@@ -246,8 +311,6 @@ MOVEBLOCKLEFT							; got left
 				JMP DONEMOVING
 
 MOVEBLOCKRIGHT							; got left
-				;LDA PROCESSING				; is PROCESSING == 0?
-				;BEQ DONEMOVING
 				LDA FIELDRIGHT
 				SEC
 				SBC #$04				; if BLOCKCOLUMN = #12, can't move right						
@@ -322,7 +385,6 @@ FALLBLOCK		LDA BLOCKCHAR			; store block color to CHAR
 				DEC PLOTCOLUMN
 				DEC PLOTROW
 				JSR CLEARBLOCKL
-				;INC PROCESSING			; not sure why, but i'm keeping track of this still.
 				INC BLOCKROW			; drop down to do it again
 				RTS						; shortcut.
 
@@ -333,44 +395,117 @@ PROCESSPIXELS
 				LDA PROCESSING			; PROCESSING updated with each combine action
 				BNE PROCESSPIXELS		; keep combining until done.
 				
+***	TOURNAMENT MODE or 2 PLAYER MODE							
+;				LDA SWITCHSIDE			
+;				BEQ DRAWNEXTBLOCK		; with each new point, switch sides
+;
+;				LDA #$0
+;				STA SWITCHSIDE			; reset for next turn
+;
+;				JSR SWITCHSIDES
+***
+							
 DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of screen
-				LDA #$01				
+										; draw upcoming block at 0, move previous upcoming down to 1
+				STA STROBE				; clear out the keyboard buffer from fast drop
+				LDA #$0				
 				STA PLOTROW
 				STA BLOCKROW
-				
-				LDA ATTRACTING
+	
+				LDA ATTRACTING			; if ATTRACTING, do random column. 
 				BEQ MIDDLETOP			; 0=done attracting, now playing with block in middle
 				JSR RANDOMCOLUMN		; gets random column from 2-18 for attract mode
 				JMP RANDOMTOP
 				
-MIDDLETOP		LDA FIELDRIGHT			; move drop location to between left/right borders
+MIDDLETOP		JSR CENTERCOLUMN	
+
+RANDOMTOP		STA PLOTCOLUMN			
+				STA BLOCKCOLUMN										
+				
+				LDA NEXTBLOCK
+				STA BLOCKCHAR			; transfer upcoming block to current
+
+				JSR RANDOMBLOCK			; get a block color
+				STA CHAR
+				STA NEXTBLOCK			; color of upcoming block
+				JSR PLOTQUICK
+				INC PLOTCOLUMN
+				JSR PLOTQUICK
+				
+				INC PLOTROW				; down to row 1
+				INC BLOCKROW			; set falling block position
+				DEC PLOTCOLUMN			
+
+GETNEXTBLOCK	LDA BLOCKCHAR			; take current block color and draw the dropping block	
+				STA CHAR
+				JSR PLOTQUICK
+				INC PLOTCOLUMN
+				JSR PLOTQUICK
+				
+
+NEXTSCREENDONE	RTS
+
+;/NEXTSCREEN		
+
+
+
+
+**************************************************
+* TOURNAMENT / 2 PLAYER MODE
+**************************************************
+
+SWITCHSIDES
+
+										; clear the upcoming block from current side
+				JSR CENTERCOLUMN		; get center COLUMN
+				STA PLOTCOLUMN
+				LDA #$0
+				STA PLOTROW
+				STA CHAR
+				JSR PLOTQUICK
+				INC PLOTCOLUMN
+				JSR PLOTQUICK			; clear upcoming block
+
+				LDA FIELDLEFT			
+				BNE NEXTSIDE			; if FIELDORIGIN is 0, set it to 20
+				LDA #$14				; else set to 0
+				JMP NEXTSIDE2
+NEXTSIDE		LDA #$00
+NEXTSIDE2		STA FIELDLEFT
+
+				CLC
+				ADC #$14				; move right border as well
+				STA FIELDRIGHT
+
+				LDA BUMPFLAG			; flagged to bump up?
+				BEQ NEXTSIDE3			; 0 skip
+				JSR BUMPPIXELS			; bump pixels up if flagged
+
+NEXTSIDE3		RTS
+;/SWITCHSIDES
+
+
+
+**************************************************
+* returns with "middle" column in accumulator
+**************************************************
+
+CENTERCOLUMN	LDA FIELDRIGHT			; move drop location to between left/right borders
 				SEC
 				SBC FIELDLEFT			; get width as right-LEFT
 				CLC
 				LSR						; divide by 2
 				AND #$FE				; divisible by 2
 				CLC
-				ADC FIELDORIGIN			; add left offset.
-			
-RANDOMTOP		STA PLOTCOLUMN
-				STA BLOCKCOLUMN
-				
-				JSR GETCHAR				; check to see if row1 is blank
-				BEQ GETNEXTBLOCK		; if not, jump to reset.
-				RTS						; otherwise, continue
-										
-				
-GETNEXTBLOCK	JSR RANDOMBLOCK			; get a block color
-				STA CHAR
-				STA BLOCKCHAR
-				JSR PLOTQUICK
-				INC PLOTCOLUMN
-				JSR PLOTQUICK
+				ADC FIELDLEFT			; add left offset.
+				RTS	
+;/CENTERCOLUMN
 
-NEXTSCREENDONE	RTS
 
-;/NEXTSCREEN		
-				
+
+**************************************************
+*	Draw the playfield(s)
+**************************************************
 
 
 DRAWBOARD		JSR HOME							
@@ -385,18 +520,13 @@ DRAWBOARD		JSR HOME
 
 				STA PROCESSING
 
-
-
-**************************************************
-*	blanks the screen
-**************************************************
 ; FOR EACH ROW/COLUMN
 
-				LDA #$18				; X = 24
+				LDA #$18				; 
 				STA PLOTROW
-ROWLOOP2 								; (ROW 24 to 0)
-				DEC PLOTROW				;	start columnloop (COLUMN 0 to 20)
-				LDA FIELDRIGHT
+ROWLOOP2 								; (ROW 40 to 0)
+				DEC PLOTROW				;	start columnloop (COLUMN 0 to 40)
+				LDA #$28
 				STA PLOTCOLUMN
 COLUMNLOOP2		DEC PLOTCOLUMN	
 
@@ -415,9 +545,19 @@ PLOTLINE		STA CHAR
 	
 ; 	/rowloop2		
 
+				JSR DRAWBORDER
+				LDA #$14				
+				STA FIELDLEFT
+				CLC
+				ADC #$14				; move right border as well
+				STA FIELDRIGHT			
+
+				JSR DRAWBORDER
+				
+				RTS
 
 **************************************************
-*	Draws the pink border, clears score
+*	Draws the pink border
 **************************************************
 
 DRAWBORDER								; draws the pink border line
@@ -495,18 +635,24 @@ BASELINE		LDA #$17				; row 24
 				ORA #$50				; adds dark grey to bottom
 				STA CHAR
 
-				LDA FIELDORIGIN
+				LDA FIELDLEFT
 				CLC
 				ADC #$14				; baseline is 20px wide
+				
 				STA PLOTCOLUMN			
 BASELINELOOP	DEC PLOTCOLUMN
 				JSR PLOTQUICK			; PLOT CHAR
 				LDA PLOTCOLUMN			; last COLUMN?
-				CMP FIELDORIGIN
+				CMP FIELDLEFT
 				BNE BASELINELOOP		; draw next column of line
 
 				RTS
 ;/DRAWBORDER				
+
+
+**************************************************
+* clears score
+**************************************************
 
 
 RESETSCORE	
@@ -522,13 +668,11 @@ RESETSCORE
 **************************************************
 
 PROGRESSBAR	
-				LDA PLAYERSCORE+1		; score+1 = 0 to #99, divide by 8 to get 1-#14
+				LDA PLAYERSCORE+1		; score+1 = 0 to #99, divide by 4 to get 1-#26
 				CLC							
 				ROR						; divide by 2
 				CLC	
 				ROR						; 4
-				CLC
-				ROR						; 8
 				STA PROGRESSBARL		; new length for progress bar
 				
 										; draw baseline from border with *color*
@@ -543,12 +687,11 @@ DRAWBAR			LDA #$17				; row 24
 				LDA PROGRESSBARL
 				BEQ NOBAR
 				CLC
-				ADC FIELDORIGIN
 				STA PLOTCOLUMN			
-DRAWBARLOOP		DEC PLOTCOLUMN
+DRAWBARLOOP		
 				JSR PLOTQUICK			; PLOT CHAR
-				LDA PLOTCOLUMN			; last COLUMN?
-				CMP FIELDORIGIN			
+				;LDA PLOTCOLUMN			; last COLUMN?
+				DEC PLOTCOLUMN
 				BNE DRAWBARLOOP			; draw next column of line
 				
 NOBAR				RTS
@@ -619,12 +762,16 @@ RESETPROGRESS	LDA #$00				; reset progress
 
 				LDA BLOCKCHAR			; if the pixel checked was blank, 
 				BEQ COLUMNSHORT			; done with the column
+				
+				
 
 DONECHECKING
 
 				LDA #$01				; at row 1?
 				CMP ROW
 				BNE CHECKROWLOOP		; loopty rows
+				
+				STA LOSEFLAG			; made it to ROW 1 - LOSE GAME
 ;/CHECKROWLOOP
 
 COLUMNSHORT		LDA FIELDLEFT 
@@ -640,6 +787,90 @@ COLUMNSHORT		LDA FIELDLEFT
 
 
 
+**************************************************
+*	loops through columns/rows 
+*	bumps each pixel up by one
+**************************************************
+
+BUMPPIXELS
+				LDA #$0
+				STA BUMPFLAG			; just do this once (for now)
+
+BUMPCOLUMN		LDX FIELDRIGHT
+				DEX
+				DEX						; column 20 to 0
+				STX COLUMN
+BUMPCOLUMNLOOP	DEC COLUMN
+
+BUMPROW			LDA #$0					; start at row 0
+				STA ROW
+BUMPROWLOOP		INC ROW				
+
+				JSR BUMPPIXEL			; move pixels up by one
+
+DONEBUMPING
+
+				LDA #$16				; at row 22?
+				CMP ROW
+				BNE BUMPROWLOOP			; loopty rows
+;/BUMPROWLOOP
+
+BUMPSHORT		DEC COLUMN				; every other column
+				LDA FIELDLEFT 
+				CLC
+				ADC #$02				; at COLUMN 2?
+				CMP COLUMN
+				BNE BUMPCOLUMNLOOP		; loopty columns
+;/BUMPCOLUMNLOOP				
+				
+
+				LDA #$16				; row 23 needs random blocks
+				STA ROW
+RANDCOLUMN		LDX FIELDRIGHT
+				DEX
+				DEX						; column 20 to 0
+				STX COLUMN
+RANDCOLUMNLOOP	DEC COLUMN
+				JSR RESETPIXEL
+				LDA #$55				; shorten the playfield
+				STA CHAR				; store px color
+				JSR PLOTQUICK			; plot over pixel.
+				DEC PLOTCOLUMN
+				JSR PLOTQUICK			; plot over pixel.
+				DEC COLUMN
+				
+				LDA COLUMN
+				SEC
+				SBC #$02
+				CMP FIELDLEFT
+				BNE RANDCOLUMNLOOP
+				
+				RTS
+;/BUMPPIXELS
+
+
+
+**************************************************
+*	bumps each pixel up by one
+**************************************************
+
+BUMPPIXEL		JSR RESETPIXEL						
+					
+				JSR GETCHAR				; current pixel value to A
+				STA BLOCKCHAR			; store current color
+				BNE BUMPINGPX			; not blank, check on.
+				RTS						; ==0, DONE CHECKING
+
+BUMPINGPX		DEC PLOTROW				; go up 1 ROW	
+				LDA BLOCKCHAR			; get pixel color
+				STA CHAR				; store px color
+				JSR PLOTQUICK			; plot over pixel above.
+				DEC PLOTCOLUMN
+				JSR PLOTQUICK			; plot over pixel-1 above.
+				
+				RTS
+
+
 
 **************************************************
 *	for each pixel position, checks neighbors for matches.
@@ -649,8 +880,11 @@ CHECKPIXEL								; get pixel color
 					
 				JSR GETCHAR				; current pixel value to A
 				STA BLOCKCHAR			; store current color
+				CMP #$55
+				BEQ CHECKSHORT			; skip grey pixels.
+				LDA BLOCKCHAR
 				BNE CHECKINGPX			; not blank, check on.
-				RTS						; ==0, DONE CHECKING
+CHECKSHORT		RTS						; ==0, DONE CHECKING
 					
 CHECKINGPX				
 CHECKABOVE		DEC PLOTROW				; check above	
@@ -659,7 +893,6 @@ CHECKABOVE		DEC PLOTROW				; check above
 				BNE CHECKLEFT			; not equal, move on to check left side
 CLEARABOVE		JSR CLEARBLOCKR
 				INC PROGRESS
-				;DEC SPEED
 
 CHECKUPLEFT		JSR RESETPIXEL			; if the above pixel is a match, check diagonal			
 				DEC PLOTCOLUMN
@@ -670,7 +903,6 @@ CHECKUPLEFT		JSR RESETPIXEL			; if the above pixel is a match, check diagonal
 				BNE CHECKLEFT
 CLEARUPLEFT		JSR CLEARBLOCKR							
 				INC PROGRESS
-				;DEC SPEED
 
 
 CHECKLEFT		JSR RESETPIXEL						
@@ -681,7 +913,6 @@ CHECKLEFT		JSR RESETPIXEL
 				BNE CHECKPROGRESS		; not equal, skip checking left+1
 CLEARLEFT		JSR CLEARBLOCKR							
 				INC PROGRESS
-				;DEC SPEED
 
 CHECKLEFT2		JSR RESETPIXEL						
 				DEC PLOTCOLUMN
@@ -693,7 +924,6 @@ CHECKLEFT2		JSR RESETPIXEL
 				BNE CHECKLEFTDOWN		; not equal, check diagonal
 CLEARLEFT2		JSR CLEARBLOCKR							
 				INC PROGRESS
-				;DEC SPEED
 
 CHECKLEFTDOWN	JSR RESETPIXEL						
 				DEC PLOTCOLUMN
@@ -704,26 +934,38 @@ CHECKLEFTDOWN	JSR RESETPIXEL
 				BNE CHECKPROGRESS
 CLEARLEFTDOWN	JSR CLEARBLOCKR							
 				INC PROGRESS
-				;DEC SPEED
 
 CHECKPROGRESS	LDA PROGRESS				; if PROGRESS then clear the check block, too
 				BEQ DONECHECKINGPX
 
-				CMP #$03					; if progress == 3, then clear both lines?
+				CMP #$02					; if progress == 2, then drop a grey block on opponent
+				BNE COMBINE4
+				LDX #$55
+				STX NEXTBLOCK
+				
+COMBINE4		CMP #$03					; if progress == 3, then clear both lines?
 				BNE CLEARBLOCK
 
 				JSR CLEAR2LINES
+				INC BUMPFLAG				; move everything up 1 line on next go-around
+											; this prevents confusion with which columns are
+											; bumping/clearing
+
 				JSR INCSCORE10				; bump up score by 10
 				JSR PROGRESSBAR
 				JSR BONK
 
 CLEARBLOCK		JSR RESETPIXEL
 				JSR CLEARBLOCKR
-				;DEC SPEED					; speed up with every successful cleared block?
 				INC PROCESSING				; set the PROCESSING so we loop again
 				JSR CLICK
 				JSR INCSCORE
-				JSR PROGRESSBAR
+				JSR PROGRESSBAR	
+
+				INC SWITCHSIDE
+
+
+				
 DONECHECKINGPX	RTS
 
 
@@ -858,7 +1100,6 @@ PLOTQUICK
 				STA $0
 				LDA LoLineTableH,Y
 				STA $1       		  		; now word/pointer at $0+$1 points to line 
-				;JMP LOADQUICK
 
 LOADQUICK		
 				LDY PLOTCOLUMN
@@ -886,7 +1127,6 @@ GETCHAR
 				LDA LoLineTableL,Y
 				STA $0
 				LDA LoLineTableH,Y
-				;JMP STORECHAR
 
 STORECHAR		STA $1       		  	; now word/pointer at $0+$1 points to line 
 				LDY PLOTCOLUMN
@@ -915,18 +1155,15 @@ LEVELUP			INC BORDERCOLOR			; change border to indicate level up
 
 										; make play field shorter, narrower with each levelup?
 										; add to difficulty?
-				INC FIELDLEFT						
-				INC FIELDLEFT						
-				DEC FIELDRIGHT					
-				DEC FIELDRIGHT					
-										
-				JSR DRAWBORDER			
+
 
 				LDA SPEED				; Increase speed?
 				SEC
 				SBC #$10				
 				STA SPEED
 
+				INC BUMPFLAG			; next frame, bump up the base. (oontz oontz)
+				JSR BUMPPIXELS			; bump pixels up if flagged
 
 SCOREDONE		CLD						; clear decimal mode
 
@@ -1060,7 +1297,8 @@ RND16			JSR RND			; limits RND output to 0-F
 **************************************************
 ; Apple logo colors :)
 BLOCKCOLORS		HEX	11,99,DD,CC,66,33,11,99,DD,CC,66,11,33,99,DD,CC
-
+				HEX	11,99,DD,CC,66,33,11,99,DD,CC,66,11,33,99,DD,CC
+				
 ;Goes up to 16 - hard mode?
 ;BLOCKCOLORS	HEX	11,22,33,44,55,66,77,88,99,AA,BB,CC,DD,EE,FF,11
 
@@ -1068,7 +1306,7 @@ BLOCKCOLORS		HEX	11,99,DD,CC,66,33,11,99,DD,CC,66,11,33,99,DD,CC
 PLAYERSCORE		HEX 00,00
 
 
-BORDERCOLORS	HEX BB,77,88,EE,AA,FF,44,22,55
+BORDERCOLORS	HEX BB,77,EE,AA,FF,44,22,33
 
 
 **************************************************
