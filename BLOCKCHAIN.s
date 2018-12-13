@@ -86,6 +86,15 @@ SPEED		EQU		$F1
 
 				ORG $2000						; PROGRAM DATA STARTS AT $2000
 
+
+
+**************************************************
+* Thanks to Craig Bower for the splash screen!
+**************************************************
+
+				JSR   SPLASHSCREEN		; Interrupt Game right at the start
+
+
 				JSR ROMSETVID           	 	; Init char output hook at $36/$37
 				JSR ROMSETKBD           	 	; Init key input hook at $38/$39
 				JSR ROMINIT               	 	; GR/HGR off, Text page 1
@@ -1533,6 +1542,98 @@ SPRITEDONE		RTS
 				
 
 
+
+
+**************************************************
+* Thanks to Craig Bower for the splash screen 
+*	and this code (I modified it slightly)
+**************************************************
+
+SPLASHSCREEN
+										; move graphic data to $3000
+
+					LDA   SPLASHLO		; Setup pointers to move memory
+					STA   $3C			; $3C and $3D for source start
+					LDA   SPLASHHI
+					STA   $3D
+
+					LDA   #$FF
+					STA   $3E			; $3E and $3F for source end
+					LDA   #$2F
+					STA   $3F			; $2fff = end :)
+
+					LDA   #$00
+					STA   $42			; $42 and $43 for destination
+					LDA   #$30
+					STA   $43
+					LDA   #$00			; Clear ACC, X,Y for smooth operation
+					TAX
+					TAY
+					JSR   $FE2C    		; F8ROM:MOVE	; Do the memory move
+
+
+
+					LDA   #$15			; Kill 80-Column mode whether active or not
+					JSR   $FDED    		; F8ROM:COUT
+					
+					STA   $C050   		; rw:TXTCLR	; Set Lo-res page 1, mixed graphics + text
+					STA   $C053   		; rw:MIXSET
+					STA   $C054   		; rw:TXTPAGE1
+					STA   $C056   		; rw:LORES
+
+										; display the data from $3000 at $400					
+RESETVPTR			LDA   #$00			; Move titlepage from $3000 to $400 (screen)
+					STA   $FE			; pointer for where we are at vertically on screen
+					TAY					; Y-Reg used for indexing across (horiz) screen
+VERTICALPTR			LDA   $FE			; pointer for where we are at vertically on screen
+					JSR   $F847    		; F8ROM:GBASCALC
+
+					LDA   $26
+					STA   $FA			; $FA is our offset GBASL Byte (Source data titlepage)
+
+					LDA   $27			; Add 04 w/ Carry to get to $3000 where graphic data is
+					ADC	#$2C
+					STA   $FB			; $FB is our offset GBASH Byte (Source data titlepage)
+					
+GRABSTORAGE			LDA   ($FA),Y		; Grab from storage
+					STA   ($26),Y		; Put to screen
+					INY
+					CPY   #$28			; #$28 past the width of screen?
+					BNE   GRABSTORAGE	; No?  Back for another round
+					LDA   #$00
+					TAX
+					TAY
+
+					
+					INC   $FE			; Next line down vertically
+					LDA   #$00
+					TAX
+					TAY
+					LDA   $FE
+					CMP   #$18			; #$18 bottom of screen?
+					BNE   VERTICALPTR	; No? Go back and do next line down
+					
+					
+					LDA   #$00
+					STA   $C010    		; r:KBDSTRB 	; Clear keyboard strobe
+					
+										; LOOP HERE TO WAIT FOR KEYPRESS
+SPLASHLOOP			LDA KEY				; check for keydown
+					CMP #$80			
+					BCC SPLASHLOOP		; got a key?
+					
+					LDA   #$00			; Clear keyboard strobe again, electric duet doesn't
+					STA   $C010    		; r:KBDSTRB
+
+					RTS					; We now return you to your regular programming
+
+;/SPLASHSCREEN
+
+
+
+
+
+
 **************************************************
 * Data Tables
 *
@@ -1712,4 +1813,79 @@ AltLineTableL        db    <Alt01,<Alt02,<Alt03
                      db    <Alt16,<Alt17,<Alt18
                      db    <Alt19,<Alt20,<Alt21
                      db    <Alt22,<Alt23,<Alt24
+
+
+
+
+SPLASHLO			db	<SPLASHSCREENDATA
+SPLASHHI			db	>SPLASHSCREENDATA
+
+SPLASHTABLE			da SPLASHLO,SPLASHHI
+
+SPLASHSCREENDATA	HEX	11,11,00,07,77,77,07,11,11,00,00,00,00,00,00,00 
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX 00,00,00,00,00,00,00,00,DD,DD,09,99,99,88,98,DD
+					HEX DD,00,00,07,07,0D,0D,00,00,02,02,09,09,00,02,02
+					HEX 08,08,00,00,00,02,0D,0D,02,00,0F,0F,00,00,07,07
+					HEX 20,22,CC,CC,22,22,22,22,20,00,00,99,99,00,00,00
+					HEX 00,99,99,00,93,99,00,99,99,00,00,99,99,00,99,99
+					HEX 00,99,99,00,00,99,99,00,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 11,11,00,00,00,00,00,11,11,00,00,C2,C2,44,44,00
+					HEX 00,DD,DD,00,00,00,EE,EE,92,92,00,00,00,22,22,33
+					HEX 33,00,66,66,00,00,88,88,DD,DD,00,09,99,99,09,DD
+					HEX DD,00,00,00,00,30,30,00,00,30,00,00,00,00,00,00
+					HEX 00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX 22,22,0C,CC,CC,44,C4,22,22,00,00,99,99,93,00,30
+					HEX 00,09,99,00,99,99,00,99,99,00,30,99,99,00,09,99
+					HEX 00,09,99,00,00,09,99,00,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 11,11,00,90,99,99,90,11,11,00,00,6C,6C,00,11,11
+					HEX 00,22,22,00,00,C2,C2,00,09,B9,B2,00,44,44,02,00
+					HEX 00,00,72,72,00,22,22,00,DD,DD,00,00,00,00,00,DD
+					HEX DD,00,00,00,93,99,99,93,00,99,93,00,00,00,00,00
+					HEX 00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX 22,22,00,0C,CC,CC,0C,22,22,00,00,00,99,99,93,99
+					HEX 00,93,99,00,99,99,00,00,99,93,99,99,99,00,93,99
+					HEX 00,93,99,00,00,93,99,00,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 11,11,90,99,99,88,89,11,11,00,00,F6,F6,00,BB,BB
+					HEX 00,EE,EE,00,00,9C,9C,00,00,3B,3B,00,99,99,00,00
+					HEX 00,00,97,97,00,44,44,00,DD,DD,00,C0,CC,CC,C0,DD
+					HEX DD,00,00,93,99,99,00,09,00,99,99,00,00,00,00,00
+					HEX 00,00,00,00,00,00,93,93,00,00,00,00,00,00,00,00
+					HEX 22,22,00,00,00,00,00,22,22,00,00,00,00,09,09,00
+					HEX 00,09,09,00,09,09,00,00,00,09,09,00,09,00,09,09
+					HEX 00,09,09,00,00,09,09,00,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 01,11,99,99,11,11,11,11,01,00,00,EF,EF,77,77,00
+					HEX 00,BB,BB,00,00,29,29,00,00,23,23,00,12,12,00,00
+					HEX 00,00,29,29,66,66,00,00,DD,DD,C0,CC,CC,44,4C,DD
+					HEX DD,00,00,99,99,09,00,00,00,99,99,00,00,00,00,00
+					HEX 00,00,00,00,00,00,09,09,00,00,00,00,00,00,00,00
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 00,00,99,99,01,01,81,88,00,00,00,2E,2E,00,99,99
+					HEX 00,C2,C2,00,00,66,66,00,00,44,44,00,21,21,00,00
+					HEX 00,00,DD,DD,00,32,32,00,0D,DD,CC,CC,DD,DD,DD,DD
+					HEX 0D,00,00,99,99,00,00,00,00,99,99,93,93,30,00,00
+					HEX 30,93,93,30,00,00,93,93,00,93,93,30,30,30,00,00
+					HEX A0,A0,A0,A0,BA,BA,C2,EC,EF,E3,EB,E3,E8,E1,E9,EE
+					HEX A0,C2,F9,A0,C3,E8,E1,F2,EC,E5,F3,A0,CD,E1,EE,E7
+					HEX E9,EE,BA,BA,A0,A0,A0,A0,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX 00,00,99,99,D0,D0,D8,88,00,00,00,B2,B2,00,F2,F2
+					HEX 00,4C,4C,00,00,11,11,00,00,62,62,00,EE,EE,00,00
+					HEX 00,00,82,82,00,13,13,00,00,00,CC,CC,0D,0D,4D,44
+					HEX 00,00,00,99,99,00,00,00,00,99,99,99,99,99,00,30
+					HEX 99,99,09,99,93,00,99,99,00,99,99,99,99,99,93,00
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX D0,DD,99,99,DD,DD,DD,DD,D0,00,00,7B,7B,D0,DF,0F
+					HEX 00,24,24,90,90,00,44,44,80,86,06,00,02,22,D2,D0
+					HEX 20,00,F8,F8,00,01,71,70,00,00,CC,CC,20,20,24,44
+					HEX 00,00,00,99,99,00,00,00,00,99,99,09,00,99,00,99
+					HEX 99,00,00,99,99,00,99,99,00,99,99,00,09,99,99,00
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,AF,D0,F2,E5,F3,F3,A0,E1
+					HEX EE,F9,A0,EB,E5,F9,A0,F4,EF,A0,E2,E5,E7,E9,EE,AF
+					HEX A0,A0,A0,A0,A0,A0,A0,A0,C7,FF,FF,FF,FF,FF,FF,FF
+
+
 
