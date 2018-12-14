@@ -1557,10 +1557,12 @@ SPLASHSCREEN
 					LDA   SPLASHHI
 					STA   $3D
 
-					LDA   #$FF
+					LDA   SPLASHLO
 					STA   $3E			; $3E and $3F for source end
-					LDA   #$2F
-					STA   $3F			; $2fff = end :)
+					LDA   SPLASHHI
+					CLC
+					ADC	#$04			; add $400 to start == end of graphic
+					STA   $3F			; 
 
 					LDA   #$00
 					STA   $42			; $42 and $43 for destination
