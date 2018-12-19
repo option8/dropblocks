@@ -1,4 +1,4 @@
-	DSK ONEPLAYER
+	DSK DROPBLOCK
 
 **************************************************
 * single-player mode - add 1 or 2 switch?
@@ -16,7 +16,7 @@ BLOCKCHAR		EQU		$CE			; color of current dropping block
 NEXTBLOCK		EQU		$CD			; color of next block to drop
 BLOCKROW		EQU		$1D			; dropping block row
 BLOCKCOLUMN		EQU		$1E			; dropping block column
-ATTRACTING		EQU		$40			; in attract mode?
+PLAYERS			EQU		$40			; in attract mode? 0, 1 or 2 players
 PROCESSING		EQU		$41			; do we need to loop again?
 
 BORDERCOLOR		EQU		$09			; border color changes to indicate level up
@@ -35,50 +35,55 @@ LOSEFLAG		EQU		$CC			; lose the game
 **************************************************
 * Apple Standard Memory Locations
 **************************************************
-CLRLORES     EQU   $F832
-LORES        EQU   $C050
-TXTSET       EQU   $C051
-MIXCLR       EQU   $C052
-MIXSET       EQU   $C053
-TXTPAGE1     EQU   $C054
-TXTPAGE2     EQU   $C055
-KEY          EQU   $C000
-C80STOREOFF  EQU   $C000
-C80STOREON   EQU   $C001
-STROBE       EQU   $C010
-SPEAKER      EQU   $C030
-VBL          EQU   $C02E
-RDVBLBAR     EQU   $C019       ;not VBL (VBL signal low
-WAIT		 EQU   $FCA8 
-RAMWRTAUX    EQU   $C005
-RAMWRTMAIN   EQU   $C004
-SETAN3       EQU   $C05E       ;Set annunciator-3 output to 0
-SET80VID     EQU   $C00D       ;enable 80-column display mode (WR-only)
-HOME 		 EQU   $FC58			; clear the text screen
-CH           EQU   $24			; cursor Horiz
-CV           EQU   $25			; cursor Vert
-VTAB         EQU   $FC22       ; Sets the cursor vertical position (from CV)
-COUT         EQU   $FDED       ; Calls the output routine whose address is stored in CSW,
-                               ;  normally COUTI
-STROUT		 EQU   $DB3A 		;Y=String ptr high, A=String ptr low
-
-ALTTEXT		 EQU	$C055
-ALTTEXTOFF   EQU	$C054
-
-ROMINIT      EQU    $FB2F
-ROMSETKBD    EQU    $FE89
-ROMSETVID    EQU    $FE93
-
+CLRLORES  	EQU	$F832
+LORES     	EQU	$C050
+TXTSET    	EQU	$C051
+MIXCLR    	EQU	$C052
+MIXSET    	EQU	$C053
+TXTPAGE1  	EQU	$C054
+TXTPAGE2  	EQU	$C055
+KEY       	EQU	$C000
+C80STOREOF	EQU	$C000
+C80STOREON	EQU	$C001
+STROBE    	EQU	$C010
+SPEAKER   	EQU	$C030
+VBL       	EQU	$C02E
+RDVBLBAR  	EQU	$C019       ;not VBL (VBL signal low
+WAIT		EQU	$FCA8 
+RAMWRTAUX 	EQU	$C005
+RAMWRTMAIN	EQU	$C004
+SETAN3    	EQU	$C05E       ;Set annunciator-3 output to 0
+SET80VID  	EQU	$C00D       ;enable 80-column display mode (WR-only)
+CLR80VID	EQU	$C00C
+HOME 		EQU	$FC58			; clear the text screen
+CH        	EQU	$24			; cursor Horiz
+CV        	EQU	$25			; cursor Vert
+VTAB      	EQU	$FC22       ; Sets the cursor vertical position (from CV)
+COUT      	EQU	$FDED       ; Calls the output routine whose address is stored in CSW,
+          	   	            ;  normally COUTI
+STROUT		EQU	$DB3A 		;Y=String ptr high, A=String ptr low
+		
+ALTTEXT		EQU	$C055
+ALTTEXTOFF	EQU	$C054
+	
+ROMINIT   	EQU    $FB2F
+ROMSETKBD 	EQU    $FE89
+ROMSETVID 	EQU    $FE93
+	
 ALTCHAR		EQU		$C00F		; enables alternative character set - mousetext
-
+	
 BLINK		EQU		$F3
 SPEED		EQU		$F1
+
 
 **************************************************
 * START - sets up various fiddly zero page bits
 **************************************************
 
 				ORG $2000						; PROGRAM DATA STARTS AT $2000
+
+				JSR   SPLASHSCREEN				; Interrupt Game right at the start
+
 
 				JSR ROMSETVID           	 	; Init char output hook at $36/$37
 				JSR ROMSETKBD           	 	; Init key input hook at $38/$39
@@ -95,6 +100,11 @@ SPEED		EQU		$F1
 				STA BUMPFLAG					
 				STA LOSEFLAG
 
+				lda #$01
+				sta $c029
+				lda SETAN3
+				sta CLR80VID 					; turn 80 column off
+
 				LDA #$00						; all the way to the left side
 				STA FIELDLEFT
 				CLC
@@ -104,8 +114,8 @@ SPEED		EQU		$F1
 				JSR CLRLORES					; clear screen		
 
 				JSR DRAWBOARD
-				LDA #$01
-				STA ATTRACTING					; in ATTRACT mode
+;				LDA #$00
+;				STA PLAYERS						; start in ATTRACT mode, 0 players
 				
 				JSR RANDOMBLOCK					; get a block color
 				STA NEXTBLOCK					; get initial block color
@@ -115,34 +125,46 @@ SPEED		EQU		$F1
 *	waits for keyboard input, plays at random
 **************************************************
 
-ATTRACT		
+;ATTRACT		
+;
+;* attract loop animation? instructions?
+;				JSR NEXTSCREEN
+;
+;				LDA LOSEFLAG			; did the game end?
+;				BNE LOSEGAME
+;
+;				LDA KEY					; check for keydown
+;				CMP #$B2				; 2 for 2 player
+;				BEQ STARTGAME2			; 
+;
+;				CMP #$B1				; 1 for 1 player
+;				BEQ STARTGAME1			; 
+;
+;				CMP #$9B				; ESC
+;				BEQ END					; exit on ESC?
+;
+;				LDA SPEED				; let's do an interframe delay
+;				JSR WAIT
+;
+;				JMP ATTRACT
+;				
+;STARTGAME1		STA STROBE
+;				LDA #$01
+;				STA PLAYERS				; start in 1 player mode (for now)
+;				JMP PLAYBALL			
+;
+;STARTGAME2		STA STROBE
+;				LDA #$02
+;				STA PLAYERS				; start in 2 player mode (for now)
+;				JMP PLAYBALL			
+;
 
-* attract loop animation? instructions?
-				JSR NEXTSCREEN
 
-				LDA LOSEFLAG			; did the game end?
-				BNE LOSEGAME
 
-				LDA KEY					; check for keydown
-				CMP #$A0				; space bar 
-				BEQ STARTGAME			; advance to game on SPACE
-
-				CMP #$9B				; ESC
-				BEQ END					; exit on ESC?
-
-				LDA SPEED				; let's do an interframe delay
-				JSR WAIT
-
-				JMP ATTRACT
-				
-STARTGAME		STA STROBE
-				JMP PLAYBALL			
-
-LOSEGAME		LDA ATTRACTING			; in attract mode or not?
-				BEQ STARTOVER			; start at level 1
-				JMP GOTRESET			; reset in attract mode
-				
-STARTOVER		JMP PLAYBALL			; 
+PLAYBALL		;LDA #$01
+				;STA PLAYERS				; leave ATTRACT mode
+				JSR RESTART
+				JMP MAINLOOP
 
 END				STA STROBE
 				STA ALTTEXTOFF
@@ -241,22 +263,16 @@ GOTRIGHT		STA STROBE
 				JSR MOVEBLOCKRIGHT
 				JMP MAINLOOP
 
-PLAYBALL		LDA #$00
-				STA ATTRACTING			; leave ATTRACT mode
+GOTRESET		;LDA #$00
+				;STA PLAYERS				; ATTRACT mode
 				JSR RESTART
-				JMP MAINLOOP
-
-GOTRESET		LDA #$01
-				STA ATTRACTING			; ATTRACT mode
-				JSR RESTART
-				JMP ATTRACT				; otherwise, attract loop.
+				JMP PLAYBALL				; otherwise, attract loop.
 
 
 RESTART			LDA #$00
 				STA STROBE
 				STA BORDERCOLOR
 				STA LOSEFLAG
-
 				STA FIELDLEFT
 				CLC
 				ADC #$14				; 20 columns to start
@@ -268,9 +284,37 @@ RESTART			LDA #$00
 				LDA #$01				
 				STA PLOTROW				; stop the current block from polluting the new game
 				STA BLOCKROW
+				STA SWITCHSIDE			; reset for next turn
+				JSR SWITCHSIDES
 
-
+				JSR RANDOMBLOCK			; get a new block color to start off with.
+				STA BLOCKCHAR
+				STA NEXTBLOCK
+	
 				RTS
+
+*** LOSE FLAG
+
+LOSEGAME		JSR BONK
+				LDA #$17
+				STA BLOCKROW
+
+LOSELOOP		LDA #$1
+				STA BUMPFLAG			; just do this once (for now)
+				JSR BUMPPIXELS
+				JSR CLICK				; bump playfield up and CLICK?
+
+				DEC BLOCKROW
+				BNE LOSELOOP			
+
+				LDA PLAYERS			; in attract mode or not?
+				BNE STARTOVER			; start at level 1
+				JMP GOTRESET			; reset in attract mode
+				
+STARTOVER		JMP PLAYBALL			; 
+
+*** LOSE GAME
+				
 
 					
 
@@ -394,16 +438,19 @@ PROCESSPIXELS
 				
 				LDA PROCESSING			; PROCESSING updated with each combine action
 				BNE PROCESSPIXELS		; keep combining until done.
-				
-***	TOURNAMENT MODE or 2 PLAYER MODE							
-;				LDA SWITCHSIDE			
-;				BEQ DRAWNEXTBLOCK		; with each new point, switch sides
-;
-;				LDA #$0
-;				STA SWITCHSIDE			; reset for next turn
-;
-;				JSR SWITCHSIDES
-***
+
+				LDA PLAYERS				; how many players?
+				CMP #$01
+				BEQ DRAWNEXTBLOCK		; 1 player - skip the switchside
+
+TOURNAMENTMODE							;0/2 PLAYER MODE							
+				LDA SWITCHSIDE			
+				BEQ DRAWNEXTBLOCK		; with each new point, switch sides
+
+				LDA #$0
+				STA SWITCHSIDE			; reset for next turn
+
+				JSR SWITCHSIDES
 							
 DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of screen
 										; draw upcoming block at 0, move previous upcoming down to 1
@@ -412,8 +459,8 @@ DRAWNEXTBLOCK							; all done PROCESSING/combining, add new block at top of scr
 				STA PLOTROW
 				STA BLOCKROW
 	
-				LDA ATTRACTING			; if ATTRACTING, do random column. 
-				BEQ MIDDLETOP			; 0=done attracting, now playing with block in middle
+				LDA PLAYERS				; if PLAYERS=0, do random column. 
+				BNE MIDDLETOP			; 1 or 2 =done attracting, now playing with block in middle
 				JSR RANDOMCOLUMN		; gets random column from 2-18 for attract mode
 				JMP RANDOMTOP
 				
@@ -1291,6 +1338,118 @@ RND16			JSR RND			; limits RND output to 0-F
 				AND #$0F		; strips high nibble
 				RTS
 
+
+**************************************************
+* Thanks to Craig Bower for the splash screen 
+*	and this code (I modified it slightly)
+**************************************************
+
+SPLASHSCREEN
+										; move graphic data to $3000
+
+					LDA   SPLASHLO		; Setup pointers to move memory
+					STA   $3C			; $3C and $3D for source start
+					LDA   SPLASHHI
+					STA   $3D
+
+					LDA   SPLASHLO
+					STA   $3E			; $3E and $3F for source end
+					LDA   SPLASHHI
+					CLC
+					ADC	#$04			; add $400 to start == end of graphic
+					STA   $3F			; 
+
+					LDA   #$00
+					STA   $42			; $42 and $43 for destination
+					LDA   #$30
+					STA   $43
+					LDA   #$00			; Clear ACC, X,Y for smooth operation
+					TAX
+					TAY
+					JSR   $FE2C    		; F8ROM:MOVE	; Do the memory move
+
+
+
+					LDA   #$15			; Kill 80-Column mode whether active or not
+					JSR   $FDED    		; F8ROM:COUT
+					
+					STA   $C050   		; rw:TXTCLR	; Set Lo-res page 1, mixed graphics + text
+					STA   $C053   		; rw:MIXSET
+					STA   $C054   		; rw:TXTPAGE1
+					STA   $C056   		; rw:LORES
+
+										; display the data from $3000 at $400					
+RESETVPTR			LDA   #$00			; Move titlepage from $3000 to $400 (screen)
+					STA   $FE			; pointer for where we are at vertically on screen
+					TAY					; Y-Reg used for indexing across (horiz) screen
+VERTICALPTR			LDA   $FE			; pointer for where we are at vertically on screen
+					JSR   $F847    		; F8ROM:GBASCALC
+
+					LDA   $26
+					STA   $FA			; $FA is our offset GBASL Byte (Source data titlepage)
+
+					LDA   $27			; Add 04 w/ Carry to get to $3000 where graphic data is
+					ADC	#$2C
+					STA   $FB			; $FB is our offset GBASH Byte (Source data titlepage)
+					
+GRABSTORAGE			LDA   ($FA),Y		; Grab from storage
+					STA   ($26),Y		; Put to screen
+					INY
+					CPY   #$28			; #$28 past the width of screen?
+					BNE   GRABSTORAGE	; No?  Back for another round
+					LDA   #$00
+					TAX
+					TAY
+
+					
+					INC   $FE			; Next line down vertically
+					LDA   #$00
+					TAX
+					TAY
+					LDA   $FE
+					CMP   #$18			; #$18 bottom of screen?
+					BNE   VERTICALPTR	; No? Go back and do next line down
+					
+					
+					LDA   #$00
+					STA   $C010    		; r:KBDSTRB 	; Clear keyboard strobe
+					
+										; LOOP HERE TO WAIT FOR KEYPRESS
+SPLASHLOOP			LDA KEY				; check for keydown
+
+					CMP #$B2				; 2 for 2 player
+					BEQ STARTGAME2			; 
+		
+					CMP #$B1				; 1 for 1 player
+					BEQ STARTGAME1			; 
+
+					CMP #$B0				; 1 for 1 player
+					BEQ STARTGAME0			; 
+
+					JMP SPLASHLOOP		; got a key?
+					
+;/SPLASHSCREEN
+
+
+STARTGAME0			STA STROBE
+					LDA #$00
+					STA PLAYERS				; start in 1 player mode (for now)
+					RTS					; We now return you to your regular programming
+
+STARTGAME1			STA STROBE
+					LDA #$01
+					STA PLAYERS				; start in 1 player mode (for now)
+					RTS					; We now return you to your regular programming
+
+STARTGAME2			STA STROBE
+					LDA #$02
+					STA PLAYERS				; start in 2 player mode (for now)
+					RTS					; We now return you to your regular programming
+
+
+
+
+
 **************************************************
 * Data Tables
 *
@@ -1423,3 +1582,81 @@ AltLineTableL        db    <Alt01,<Alt02,<Alt03
                      db    <Alt19,<Alt20,<Alt21
                      db    <Alt22,<Alt23,<Alt24
 
+
+SPLASHLO			db	<SPLASHSCREENDATA
+SPLASHHI			db	>SPLASHSCREENDATA
+
+SPLASHTABLE			da SPLASHLO,SPLASHHI
+
+SPLASHSCREENDATA	HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,66,77,FF,CF,44,44,CF,4C
+					HEX	44,44,FF,77,00,00,CC,00,00,00,00,CC,00,00,CC,00
+					HEX	00,CC,00,00,CC,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,99,BB,FF,FF,22
+					HEX	22,22,22,22,26,FF,BB,00,66,00,00,00,60,60,00,00
+					HEX	00,60,60,00,00,66,00,00,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,66,77,FF,44,44,44,44,44
+					HEX	F4,FF,FF,77,00,C0,CC,C0,00,00,00,0C,C0,C0,0C,00
+					HEX	00,CC,C0,C0,0C,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,99,BB,FF,6F,22
+					HEX	22,6F,6F,22,22,FF,BB,00,66,00,00,66,00,00,66,00
+					HEX	66,00,00,06,00,66,60,06,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX	60,77,F7,F7,F7,F7,F7,F7,F7,F7,F7,77,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,06,77,7F,7F,7F,7F,7F,7F
+					HEX	7F,7F,7F,77,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,CC,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,99,BB,FF,22,22
+					HEX	22,22,22,22,F2,FF,BB,00,66,00,00,66,00,00,66,00
+					HEX	66,00,00,60,00,66,06,60,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX	66,77,FF,4C,4C,4C,4C,4C,CF,FF,FF,77,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,B0,B0,B0,B0,B0,B0,B0,B0,B0,B0,B0,00
+					HEX	00,CC,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,09,BB,BF,BF,BF
+					HEX	BF,BF,BF,BF,BF,BF,BB,00,06,06,00,00,06,06,00,00
+					HEX	00,06,06,00,00,06,00,06,FF,FF,FF,FF,FF,FF,FF,FF
+					HEX	66,77,FF,F4,44,44,F4,44,44,4C,FF,77,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,99,BB,FF,6F,6F,6F,6F,6F,FF,FF,FF,BB,00
+					HEX	00,CC,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,FF,FF,FF,FF,FF,FF,FF,C0
+					HEX	66,77,FF,FF,44,44,FF,FF,44,44,FF,77,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,99,BB,FF,22,22,22,22,22,26,6F,FF,BB,00
+					HEX	60,00,00,00,00,00,00,00,00,00,00,00,60,60,00,00
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,FF,FF,FF,FF,FF,FF,FF,00
+					HEX	66,77,FF,FF,44,44,FF,FF,44,44,FF,77,00,0C,CC,00
+					HEX	C0,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,99,BB,FF,FF,22,22,F2,F2,22,22,FF,BB,00
+					HEX	66,00,00,00,00,00,00,00,00,00,00,00,00,66,00,00
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0,A0
+					HEX	A0,A0,A0,A0,A0,A0,A0,A0,70,FF,FF,FF,FF,FF,FF,00
+					HEX	66,77,FF,FF,44,44,FF,FF,44,44,FF,77,00,00,CC,CC
+					HEX	0C,CC,00,C0,0C,0C,C0,00,0C,CC,0C,0C,C0,00,00,00
+					HEX	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+					HEX	00,00,00,99,BB,FF,FF,22,22,6F,6F,22,F2,FF,BB,00
+					HEX	66,00,00,00,00,00,00,00,00,00,00,00,00,66,00,00
+					HEX	A0,A0,D0,D2,C5,D3,D3,A0,B1,A0,CF,D2,A0,B2,A0,C6
+					HEX	CF,D2,A0,CF,CE,C5,A0,CF,D2,A0,D4,D7,CF,A0,D0,CC
+					HEX	C1,D9,C5,D2,D3,A0,A0,A0,00,FF,FF,FF,FF,FF,FF,FF
+	
+	
+	
+	
+	
+	
+	
+	
